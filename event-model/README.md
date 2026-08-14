@@ -46,7 +46,7 @@ The types defined here are what the OTK message envelope wraps. They have no tra
 
 - OTK message envelope and protocol-level message types: [`otk-protocol`](../otk-protocol).
 - Encode/decode of OTK messages into byte frames: [`frame-codec`](../frame-codec). Used by every transport-binding adapter; also `no_std` + `alloc`-friendly so it can run inside firmware producers.
-- Transport-specific code (sockets, USB enumeration, etc.): [`EventIngestPort`](../timing-core/src/ports/inbound/ingest.rs) in `timing_core::ports::inbound` and the per-transport `adapter-ingest-*` crates ([`adapter-ingest-tcp`](../adapter-ingest-tcp), [`adapter-ingest-unix-socket`](../adapter-ingest-unix-socket)).
+- Transport-specific code (sockets, USB enumeration, etc.): [`EventIngestPort`](../timing-core/src/ports/outbound/ingest.rs) in `timing_core::ports::outbound` and the per-transport `adapter-ingest-*` crates ([`adapter-ingest-tcp`](../adapter-ingest-tcp), [`adapter-ingest-unix-socket`](../adapter-ingest-unix-socket)).
 - Trait contracts for detector adapters and timebases: [`otk-contracts`](../otk-contracts).
 - Producer-side connection / retry helpers: [`otk-sdk`](../otk-sdk) (its `producer` feature).
 - Runtime ingestion, projection, or storage logic: [`timing-node`](../timing-node), [`timing-core`](../timing-core).

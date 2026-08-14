@@ -1,6 +1,6 @@
 # adapter-ingest-tcp
 
-TCP ingest adapter for OTK. Implements [`EventIngestPort`](../timing-core/src/ports/inbound/ingest.rs) in `timing_core::ports::inbound` over plain TCP, accepting producer connections and delivering typed events to the timing node.
+TCP ingest adapter for OTK. Implements [`EventIngestPort`](../timing-core/src/ports/outbound/ingest.rs) in `timing_core::ports::outbound` over plain TCP, accepting producer connections and delivering typed events to the timing node.
 
 > **Status: active.** Wraps the upstream `frame-codec` + `ingest-protocol` crates with TCP socket lifecycle. See [open questions](#open-questions) for deferred items.
 
@@ -28,7 +28,7 @@ adapter-ingest-tcp/         this crate: TCP socket lifecycle around the above
 timing-node/                injects this adapter at startup
 ```
 
-The timing node's **pipeline logic** depends only on the [`EventIngestPort`](../timing-core/src/ports/inbound/ingest.rs) in `timing_core::ports::inbound` trait, never on this crate's concrete types. `timing-node` itself, as the composition root, does pull this crate in as a Cargo dependency to construct the concrete `TcpIngestPort` and hand it to the pipeline behind the trait object. The hexagonal boundary is at the runtime / pipeline seam, not at the binary's dependency graph.
+The timing node's **pipeline logic** depends only on the [`EventIngestPort`](../timing-core/src/ports/outbound/ingest.rs) in `timing_core::ports::outbound` trait, never on this crate's concrete types. `timing-node` itself, as the composition root, does pull this crate in as a Cargo dependency to construct the concrete `TcpIngestPort` and hand it to the pipeline behind the trait object. The hexagonal boundary is at the runtime / pipeline seam, not at the binary's dependency graph.
 
 ## Design decisions
 
@@ -87,7 +87,7 @@ loop {
 
 ## Dependencies
 
-**Depends on:** [`EventIngestPort`](../timing-core/src/ports/inbound/ingest.rs) in `timing_core::ports::inbound`, [`protocol`](../otk-protocol), [`event-model`](../event-model), [`frame-codec`](../frame-codec), [`ingest-protocol`](../ingest-protocol), `async-trait`, `tokio`.
+**Depends on:** [`EventIngestPort`](../timing-core/src/ports/outbound/ingest.rs) in `timing_core::ports::outbound`, [`protocol`](../otk-protocol), [`event-model`](../event-model), [`frame-codec`](../frame-codec), [`ingest-protocol`](../ingest-protocol), `async-trait`, `tokio`.
 
 **Used by:** [`timing-node`](../timing-node) as its default ingest transport.
 

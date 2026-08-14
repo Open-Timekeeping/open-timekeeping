@@ -13,21 +13,28 @@ four sibling modules:
 
 - **`domain/`** : pure domain. [`Crossing`] (the derived passage
   record), [`CrossingProcessor`] (detection-to-crossing grouping),
-  [`SequenceGate`] (per-`(producer, detector)` sequence monotonicity,
-  with restart-resume via [`seed_from_log`] / [`seed_from_log_box`]),
-  and [`ProcessorConfig`]. Other domain primitives (`Detection`,
+  [`SequenceGate`] (per-`(producer, detector)` sequence monotonicity),
+  and [`ProcessorConfig`]. Nothing here names a port type. Other
+  domain primitives (`Detection`,
   `SubjectId`, `TimingPointId`, etc.) are imported from `event-model`,
   the wire-schema crate, until a future split separates wire from
   domain types.
-- **`ports/inbound/`** : driving ports the core implements.
-  [`EventIngestPort`] (every transport adapter implements this) and
-  [`EventQueryPort`] (the REST/SSE API depends on this).
-- **`ports/outbound/`** : driven ports the core consumes.
-  [`EventLog`] (storage) and [`IngestMetrics`] (telemetry). The
-  composition root injects concrete implementations of both.
-- **`services/`** : application services. At v0 there is one,
-  [`EventIngestService`], which implements `EventQueryPort` and takes
-  the outbound ports as constructor arguments.
+- **`ports/inbound/`** : driving ports **the core implements**.
+  [`EventAppendPort`] (the runtime's listener loop depends on this)
+  and [`EventQueryPort`] (the REST/SSE API depends on this).
+- **`ports/outbound/`** : driven ports **adapters implement** and the
+  core consumes. [`EventLog`] (storage), [`EventIngestPort`]
+  (per-transport listeners), and [`IngestMetrics`] (telemetry). The
+  composition root injects concrete implementations of each.
+- **`services/`** : application services. [`EventIngestService`]
+  implements both inbound ports and takes the outbound ports as
+  constructor arguments; [`seed_from_log`] / [`seed_from_log_box`]
+  restore gate state from the log at startup.
+
+The inbound/outbound split is by **who implements**, not by which way
+data travels. A transport listener carries producer traffic inward, but
+the adapter implements it and the runtime calls it, so it is a driven
+(outbound) port, the same direction as [`EventLog`].
 
 `timing-core` is a library, not a server. The v0 composition root that
 deploys it is [`timing-node`](../timing-node), but the same library is
@@ -39,8 +46,9 @@ tool, a conformance harness.
 
 | Direction | Port (in `ports/...`) | Who implements | How it's used |
 |---|---|---|---|
-| Inbound (driving) | `EventIngestPort` (`ports::inbound::ingest`) | per-transport ingest adapters | `timing-node`'s listener loop calls `accept` and routes the resulting `IngestSession`s into `EventIngestService::append_event`. |
+| Inbound (driving) | `EventAppendPort` (`ports::inbound::append`) | `EventIngestService` | `timing-node`'s listener loop holds `Arc<dyn EventAppendPort>` and submits each decoded event; it never names the service type. |
 | Inbound (driving) | `EventQueryPort` (`ports::inbound::query`) | `EventIngestService` | The REST/SSE API layer in `timing-node` depends on the trait, not on the service type. |
+| Outbound (driven) | `EventIngestPort` (`ports::outbound::ingest`) | per-transport ingest adapters | `timing-node`'s listener loop calls `accept` and polls the resulting `IngestSession`s. |
 | Outbound (driven) | `EventLog` (`ports::outbound::event_log`) | storage adapters | Taken by `EventIngestService::new`. The v0 backend is [`adapter-event-log-segment`](../adapter-event-log-segment); alternatives plug in behind the same trait. |
 | Outbound (driven) | `IngestMetrics` (`ports::outbound::metrics`) | `timing-node`'s Prometheus `Metrics` | Taken by `EventIngestService::new`. Tests use [`NoopIngestMetrics`] from this crate. |
 
@@ -79,11 +87,11 @@ library.
   state.
 - `Crossing`: the primary derived timing record.
 - `SequenceGate`: per-`(producer_id, detector_id)` sequence-number
-  enforcement, with `seed_from_log` for restart resume.
+  enforcement, with `services::seed_from_log` for restart resume.
 - `EventIngestService`: the application service that drives ingest
   end-to-end (peek-gate → peek-processor → append → commit-gate →
   commit-processor → record metrics → return outcome).
-- The four port traits adapters and the API layer compile against.
+- The five port traits adapters and the API layer compile against.
 
 ## What is deferred (future work)
 
@@ -217,9 +225,10 @@ Apache-2.0. See [`LICENSE`](./LICENSE).
 [`CrossingProcessor`]: ./src/domain/crossing_processor.rs
 [`ProcessorConfig`]: ./src/domain/processor_config.rs
 [`SequenceGate`]: ./src/domain/sequence_gate.rs
-[`seed_from_log`]: ./src/domain/sequence_gate.rs
-[`seed_from_log_box`]: ./src/domain/sequence_gate.rs
-[`EventIngestPort`]: ./src/ports/inbound/ingest.rs
+[`seed_from_log`]: ./src/services/gate_seed.rs
+[`seed_from_log_box`]: ./src/services/gate_seed.rs
+[`EventAppendPort`]: ./src/ports/inbound/append.rs
+[`EventIngestPort`]: ./src/ports/outbound/ingest.rs
 [`EventQueryPort`]: ./src/ports/inbound/query.rs
 [`EventLog`]: ./src/ports/outbound/event_log.rs
 [`IngestMetrics`]: ./src/ports/outbound/metrics.rs

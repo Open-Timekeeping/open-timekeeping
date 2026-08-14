@@ -8,7 +8,7 @@ use ingest_protocol::{
     InboundAction, PostHandshakeProcessor, ProtocolError,
 };
 use otk_protocol::OtkEnvelope;
-use timing_core::ports::inbound::{IncomingEvent, IngestError, IngestSession};
+use timing_core::ports::outbound::{IncomingEvent, IngestError, IngestSession};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
 use crate::config::TcpIngestConfig;
@@ -57,14 +57,14 @@ where
                     // Connect and disconnected" (decoder still holds buffered
                     // bytes from the start of a frame).
                     if decoder.has_pending() {
-                        return Err(IngestError::Decode(
+                        return Err(IngestError::Malformed(
                             "truncated Connect frame: EOF mid-frame during handshake".into(),
                         ));
                     }
-                    return Err(IngestError::Handshake("EOF before Connect".into()));
+                    return Err(IngestError::Rejected("EOF before Connect".into()));
                 }
                 Ok(n) => n,
-                Err(e) => return Err(IngestError::Io(e)),
+                Err(e) => return Err(IngestError::Transport(e.to_string())),
             };
             for result in decoder.push(&buf[..n]) {
                 let envelope = result.map_err(frame_err_to_ingest)?;
@@ -93,7 +93,7 @@ where
             }
             HandshakeOutcome::Rejected { reply, reason } => {
                 let _ = send_envelope(&mut stream, &reply, max_frame_size).await;
-                Err(IngestError::Handshake(format!("rejected: {reason:?}")))
+                Err(IngestError::Rejected(format!("rejected: {reason:?}")))
             }
         }
     }
@@ -112,14 +112,14 @@ where
                     // exit cleanly at a frame boundary land here with
                     // has_pending() == false.
                     if self.decoder.has_pending() {
-                        return Err(IngestError::Decode(
+                        return Err(IngestError::Malformed(
                             "truncated frame: EOF before frame completed".into(),
                         ));
                     }
                     return Ok(false);
                 }
                 Ok(n) => n,
-                Err(e) => return Err(IngestError::Io(e)),
+                Err(e) => return Err(IngestError::Transport(e.to_string())),
             };
             for result in self.decoder.push(&buf[..n]) {
                 let envelope = result.map_err(frame_err_to_ingest)?;
@@ -161,8 +161,10 @@ where
         &self.producer_id
     }
 
-    fn peer_addr(&self) -> &str {
-        &self.peer_addr
+    fn remote_label(&self) -> Option<&str> {
+        // Always available for this transport: the socket peer address is
+        // captured at accept time.
+        Some(&self.peer_addr)
     }
 }
 
@@ -175,26 +177,29 @@ where
     S: AsyncWrite + Unpin,
 {
     let frame = encode_stream(envelope, max_frame_size).map_err(frame_err_to_ingest)?;
-    stream.write_all(&frame).await.map_err(IngestError::Io)?;
+    stream
+        .write_all(&frame)
+        .await
+        .map_err(|e| IngestError::Transport(e.to_string()))?;
     Ok(())
 }
 
 fn frame_err_to_ingest(e: FrameError) -> IngestError {
     match e {
-        FrameError::OversizeFrame { .. } => IngestError::Decode(e.to_string()),
+        FrameError::OversizeFrame { .. } => IngestError::Malformed(e.to_string()),
         FrameError::DecodeFailed(_)
         | FrameError::CorruptFrame
         | FrameError::LostSync
-        | FrameError::EncodeFailed => IngestError::Decode(e.to_string()),
+        | FrameError::EncodeFailed => IngestError::Malformed(e.to_string()),
     }
 }
 
 fn handshake_err_to_ingest(e: HandshakeError) -> IngestError {
-    IngestError::Handshake(e.to_string())
+    IngestError::Rejected(e.to_string())
 }
 
 fn protocol_err_to_ingest(e: ProtocolError) -> IngestError {
-    IngestError::Decode(e.to_string())
+    IngestError::Malformed(e.to_string())
 }
 
 #[cfg(test)]
@@ -209,7 +214,7 @@ mod tests {
         ids::ProducerId, Connect, ConnectRejectReason, MessageType, OtkEnvelope, PROTOCOL_VERSION,
     };
     use std::sync::Arc;
-    use timing_core::ports::inbound::{EventIngestPort, IngestError};
+    use timing_core::ports::outbound::{EventIngestPort, IngestError};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpStream;
 
@@ -472,7 +477,7 @@ mod tests {
         let mut session = session_result.unwrap();
         let result = session.next_event().await;
         assert!(
-            matches!(result, Err(IngestError::Decode(_))),
+            matches!(result, Err(IngestError::Malformed(_))),
             "mid-frame EOF must be a Decode error, got: {result:?}"
         );
     }
@@ -494,7 +499,7 @@ mod tests {
         });
 
         match accept_result {
-            Err(IngestError::Decode(msg)) => {
+            Err(IngestError::Malformed(msg)) => {
                 assert!(
                     msg.contains("truncated") || msg.contains("EOF mid"),
                     "expected truncation message, got: {msg}"

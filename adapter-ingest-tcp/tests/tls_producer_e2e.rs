@@ -21,7 +21,7 @@ use event_model::{
 use ingest_protocol::AllowAll;
 use otk_sdk::producer::{Producer, ProducerConfig, TlsClientConfig, Transport};
 use tempfile::TempDir;
-use timing_core::ports::inbound::EventIngestPort;
+use timing_core::ports::outbound::EventIngestPort;
 
 struct E2eFixture {
     _tmp: TempDir,

@@ -1,20 +1,25 @@
-# Hexagonal boundary fence (M12).
+# Hexagonal boundary fence.
 #
-# This crate is an adapter. It implements one of `timing-core`'s outbound
-# port traits (`EventLog`) and must touch nothing else in `timing-core`.
-# When the port traits lived in their own crate (`port-out-event-log`),
-# Cargo's dep graph enforced the boundary at compile time. Folding the
-# ports into `timing-core` made the dep graph permissive again, so this
-# file is the convention-enforced replacement.
+# This crate is an adapter. It implements `timing-core` port traits and must
+# touch nothing else in `timing-core`. When the port traits lived in their own
+# crates (`port-in-ingest`, `port-out-event-log`), Cargo's dep graph enforced
+# the boundary at compile time. Folding the ports into `timing-core` made the
+# dep graph permissive again, so this file is the convention-enforced
+# replacement.
 #
 # `cargo clippy -- -D warnings` (run in CI) turns a violation into a build
-# failure. The lints are deny-by-default for `disallowed-types`; the
-# `-D warnings` flag promotes that to a hard error.
+# failure. The lints are deny-by-default for `disallowed-types` and
+# `disallowed-methods`; the `-D warnings` flag promotes that to a hard error.
 #
-# The list is enumerated rather than wildcarded because clippy's
-# `disallowed-types` config takes exact paths, not globs. When a new
-# public type is added to `timing_core::domain` or `timing_core::services`,
-# add its path here too.
+# Every fenced crate carries a byte-identical copy of this file, and the
+# `fence` CI job fails if they drift apart or if a new `timing-core`-dependent
+# crate ships without one. Keep edits in sync by editing one copy and running
+# `.github/sync-fences.sh`.
+#
+# The lists are enumerated rather than wildcarded because clippy's config
+# takes exact paths, not globs. When a new public item is added to
+# `timing_core::domain` or `timing_core::services`, add its path here too.
+
 disallowed-types = [
     { path = "timing_core::Crossing",            reason = "domain entity; adapters use `timing_core::ports::*`" },
     { path = "timing_core::CrossingId",          reason = "domain entity; adapters use `timing_core::ports::*`" },
@@ -23,5 +28,22 @@ disallowed-types = [
     { path = "timing_core::GateDecision",        reason = "domain enum; adapters use `timing_core::ports::*`" },
     { path = "timing_core::ProcessorConfig",     reason = "domain config; adapters use `timing_core::ports::*`" },
     { path = "timing_core::EventIngestService",  reason = "application service; adapters use `timing_core::ports::*`" },
-    { path = "timing_core::AppendOutcome",       reason = "application service; adapters use `timing_core::ports::*`" },
+]
+
+# Free functions and methods are invisible to `disallowed-types`, so the
+# service layer's startup routines need their own entries: without these,
+# `timing_core::seed_from_log(...)` from an adapter would compile and lint
+# clean while reaching straight past the port boundary.
+#
+# The `services::gate_seed::` entries are the load-bearing ones. Clippy
+# resolves a call to the item's DEFINITION path, not the path the caller
+# wrote, so a call written as `timing_core::seed_from_log(...)` is reported
+# against `timing_core::services::gate_seed::seed_from_log`. The short
+# crate-root forms below are kept only to document the re-export; deleting
+# the long forms would silently disable this half of the fence.
+disallowed-methods = [
+    { path = "timing_core::services::gate_seed::seed_from_log",     reason = "application service; the composition root seeds the gate" },
+    { path = "timing_core::services::gate_seed::seed_from_log_box", reason = "application service; the composition root seeds the gate" },
+    { path = "timing_core::seed_from_log",       reason = "re-export of the above; kept for discoverability" },
+    { path = "timing_core::seed_from_log_box",   reason = "re-export of the above; kept for discoverability" },
 ]

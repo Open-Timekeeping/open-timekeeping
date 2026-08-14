@@ -5,20 +5,22 @@
 //! - **Domain** ([`domain`]): the timing-domain types and engines.
 //!   [`Crossing`] (derived passage record), [`CrossingProcessor`]
 //!   (detection-to-crossing grouping), [`SequenceGate`] (per-`(producer,
-//!   detector)` sequence-number monotonicity with restart-resume via
-//!   [`seed_from_log`] / [`seed_from_log_box`]). Other domain primitives
-//!   (`Detection`, `SubjectId`, `TimingPointId`, etc.) live in the
-//!   wire-schema crate `event-model` and are imported as-is until a future
-//!   split separates wire from domain types.
-//! - **Ports** ([`ports`]): the typed interfaces on the hexagon's edge.
-//!   [`ports::inbound`] holds the ports the core implements
-//!   ([`EventIngestPort`], [`EventQueryPort`]); [`ports::outbound`] holds
-//!   the ports the core consumes ([`EventLog`], [`IngestMetrics`]). Adapter
-//!   crates implement the outbound ports; the API layer depends on the
-//!   inbound ports.
+//!   detector)` sequence-number monotonicity). Pure: nothing here touches
+//!   a port type. Other domain primitives (`Detection`, `SubjectId`,
+//!   `TimingPointId`, etc.) live in the wire-schema crate `event-model`
+//!   and are imported as-is until a future split separates wire from
+//!   domain types.
+//! - **Ports** ([`ports`]): the typed interfaces on the hexagon's edge,
+//!   split by who implements them. [`ports::inbound`] holds the ports the
+//!   core implements ([`EventAppendPort`], [`EventQueryPort`]);
+//!   [`ports::outbound`] holds the ports adapters implement and the core
+//!   consumes ([`EventLog`], [`EventIngestPort`], [`IngestMetrics`]).
 //! - **Application services** ([`services`]): [`EventIngestService`]
 //!   stitches the domain together with the injected outbound ports and
 //!   implements the read-only [`EventQueryPort`] the API layer depends on.
+//!   [`seed_from_log`] / [`seed_from_log_box`] restore [`SequenceGate`]
+//!   state from the log at startup; they live here rather than in
+//!   [`domain`] because they read through an outbound port.
 //!
 //! # Adapter boundary
 //!
@@ -56,9 +58,10 @@
 //! [`Crossing`]: domain::Crossing
 //! [`CrossingProcessor`]: domain::CrossingProcessor
 //! [`SequenceGate`]: domain::SequenceGate
-//! [`seed_from_log`]: domain::seed_from_log
-//! [`seed_from_log_box`]: domain::seed_from_log_box
-//! [`EventIngestPort`]: ports::inbound::EventIngestPort
+//! [`seed_from_log`]: services::seed_from_log
+//! [`seed_from_log_box`]: services::seed_from_log_box
+//! [`EventAppendPort`]: ports::inbound::EventAppendPort
+//! [`EventIngestPort`]: ports::outbound::EventIngestPort
 //! [`EventQueryPort`]: ports::inbound::EventQueryPort
 //! [`EventLog`]: ports::outbound::EventLog
 //! [`IngestMetrics`]: ports::outbound::IngestMetrics
@@ -77,15 +80,14 @@ pub(crate) mod testing;
 // per-adapter clippy fence on `timing_core::domain::*` and
 // `timing_core::services::*` covers the rest.
 pub use domain::{
-    seed_from_log, seed_from_log_box, Crossing, CrossingId, CrossingProcessor, GateDecision,
-    ProcessorConfig, SequenceGate,
+    Crossing, CrossingId, CrossingProcessor, GateDecision, ProcessorConfig, SequenceGate,
 };
 pub use ports::inbound::{
-    EventEntry, EventIngestPort, EventPage, EventQueryPort, EventStream, IncomingEvent,
-    IngestError, IngestSession, QueryError,
+    AppendError, AppendOutcome, EventAppendPort, EventEntry, EventPage, EventQueryPort,
+    EventStream, QueryError,
 };
 pub use ports::outbound::{
-    EventLog, IngestMetrics, LogEntry, LogSubscription, NoopIngestMetrics, Offset, RetentionPolicy,
-    StorageError,
+    EventIngestPort, EventLog, IncomingEvent, IngestError, IngestMetrics, IngestSession, LogEntry,
+    LogSubscription, NoopIngestMetrics, Offset, RetentionPolicy, StorageError,
 };
-pub use services::{AppendOutcome, EventIngestService};
+pub use services::{seed_from_log, seed_from_log_box, EventIngestService};

@@ -31,7 +31,7 @@ use otk_protocol::{
 use rustls::pki_types::ServerName;
 use rustls::{ClientConfig, RootCertStore};
 use tempfile::TempDir;
-use timing_core::ports::inbound::EventIngestPort;
+use timing_core::ports::outbound::EventIngestPort;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;

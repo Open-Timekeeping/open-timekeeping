@@ -8,9 +8,10 @@
 //!
 //! Hexagonal placement:
 //!
-//! - **Inbound (driving) port implemented**: [`EventQueryPort`] from
-//!   [`crate::ports::inbound`]. The REST/SSE API in `timing-node` depends
-//!   on the trait, not on `EventIngestService` itself.
+//! - **Inbound (driving) ports implemented**: [`EventAppendPort`] (write)
+//!   and [`EventQueryPort`] (read), both from [`crate::ports::inbound`].
+//!   The runtime's listener loop and the REST/SSE API each depend on the
+//!   relevant trait, not on `EventIngestService` itself.
 //! - **Outbound (driven) ports consumed**: [`EventLog`] (storage) and
 //!   [`IngestMetrics`] (telemetry), both from [`crate::ports::outbound`].
 //!   Both are injected as constructor arguments by the composition root.
@@ -30,26 +31,16 @@ use futures_util::stream;
 use tracing::{debug, info, warn};
 
 use crate::domain::{Crossing, CrossingProcessor, GateDecision, ProcessorConfig, SequenceGate};
-use crate::ports::inbound::{EventEntry, EventPage, EventQueryPort, EventStream, QueryError};
+use crate::ports::inbound::{
+    AppendError, AppendOutcome, EventAppendPort, EventEntry, EventPage, EventQueryPort,
+    EventStream, QueryError,
+};
 use crate::ports::outbound::{EventLog, IngestMetrics, Offset, StorageError};
-
-/// Outcome of a successful [`EventIngestService::append_event`] call.
-#[derive(Debug, Clone, Copy)]
-pub enum AppendOutcome {
-    /// Event (and any derived crossings) were persisted; `offset` is the offset
-    /// of the last record in the batch. The detection's own offset is recoverable
-    /// as `offset - n_crossings` if needed.
-    Appended(Offset),
-    /// Event was a duplicate per the sequence gate and was dropped without
-    /// persisting. The runtime treats this as a success at the boundary so
-    /// the producer's session stays open.
-    DroppedDuplicate,
-}
 
 /// End-to-end ingest application service.
 ///
 /// Owns the event log (outbound port), the crossing engine (domain), and
-/// the sequence gate (domain policy). Exposes [`Self::append_event`] as
+/// the sequence gate (domain policy). Exposes [`EventAppendPort::append_event`] as
 /// the inbound entry point used by the transport-layer adapters, and
 /// implements [`EventQueryPort`] for the API layer.
 ///
@@ -61,7 +52,7 @@ pub enum AppendOutcome {
 /// - `EventLog::append` is async, so the log uses `tokio::sync::Mutex`.
 /// - `CrossingProcessor` is fully synchronous, so it uses
 ///   `std::sync::Mutex` and is **never held across an `.await`** :
-///   [`append_event`](Self::append_event) acquires it, runs
+///   [`append_event`](EventAppendPort::append_event) acquires it, runs
 ///   `peek_detection` / `commit_detection`, drops it, and only then
 ///   takes the async log lock.
 ///
@@ -72,7 +63,7 @@ pub enum AppendOutcome {
 ///
 /// # Batching
 ///
-/// [`append_event`](Self::append_event) builds a `[detection, ...crossings]`
+/// [`append_event`](EventAppendPort::append_event) builds a `[detection, ...crossings]`
 /// slice and submits it in one `EventLog::append` call. This halves lock
 /// acquisitions (and `fsync`, when per-append is on) whenever a detection
 /// produces crossings, and makes the detection + its derived crossings
@@ -121,7 +112,12 @@ impl EventIngestService {
     ///
     /// On `Detection` accept, the event is also pushed through the crossing
     /// processor; resulting crossings are appended as `OtkEvent::Crossing`.
-    pub async fn append_event(
+    ///
+    /// Private: callers go through [`EventAppendPort::append_event`], which
+    /// maps [`StorageError`] onto the port's own vocabulary. Keeping the
+    /// storage-typed body separate keeps the error mapping in one place
+    /// instead of threading it through the three-phase flow below.
+    async fn append_event_inner(
         &self,
         producer_id: &str,
         event: OtkEvent,
@@ -255,7 +251,7 @@ impl EventIngestService {
                 );
             }
         }
-        Ok(AppendOutcome::Appended(offset))
+        Ok(AppendOutcome::Appended(offset.as_u64()))
     }
 
     /// Returns a clone of the log handle for use in tests or subscriptions.
@@ -285,6 +281,30 @@ fn map_crossing(c: &Crossing) -> CrossingEvent {
         timestamping_method: c.timestamping_method,
         source_attestation: c.source_attestation,
         detection_ids: c.detection_ids.clone(),
+    }
+}
+
+/// Collapse a storage failure onto the append port's two-way split. Only
+/// `InvalidInput` is the submitter's fault; everything else (I/O, corruption,
+/// misconfiguration, and a retention race on a fresh append) is ours, and a
+/// producer retry is a reasonable response to all of them.
+fn map_storage_append_err(e: StorageError) -> AppendError {
+    match e {
+        StorageError::InvalidInput(msg) => AppendError::Rejected(msg),
+        other => AppendError::Unavailable(other.to_string()),
+    }
+}
+
+#[async_trait]
+impl EventAppendPort for EventIngestService {
+    async fn append_event(
+        &self,
+        producer_id: &str,
+        event: OtkEvent,
+    ) -> Result<AppendOutcome, AppendError> {
+        self.append_event_inner(producer_id, event)
+            .await
+            .map_err(map_storage_append_err)
     }
 }
 
@@ -412,7 +432,7 @@ mod tests {
             .append_event("p", OtkEvent::Detection(make_detection_with_seq(1)))
             .await
             .unwrap();
-        assert!(matches!(outcome, AppendOutcome::Appended(o) if o == Offset::new(0)));
+        assert!(matches!(outcome, AppendOutcome::Appended(0)));
     }
 
     #[tokio::test]
@@ -425,7 +445,7 @@ mod tests {
             .append_event("p", OtkEvent::Detection(make_detection_with_seq(2)))
             .await
             .unwrap();
-        assert!(matches!(outcome, AppendOutcome::Appended(o) if o == Offset::new(1)));
+        assert!(matches!(outcome, AppendOutcome::Appended(1)));
     }
 
     #[tokio::test]

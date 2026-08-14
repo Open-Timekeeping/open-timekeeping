@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use ingest_protocol::{AllowAll, ConnectAuthoriser};
-use timing_core::ports::inbound::{EventIngestPort, IngestError, IngestSession};
+use timing_core::ports::outbound::{EventIngestPort, IngestError, IngestSession};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::time::timeout;
 
@@ -135,7 +135,7 @@ impl UnixSocketIngestPort {
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
                 // Nothing at the path; nothing to clean up.
             }
-            Err(e) => return Err(IngestError::Io(e)),
+            Err(e) => return Err(IngestError::Transport(e.to_string())),
         }
 
         if needs_remove {
@@ -168,7 +168,7 @@ impl UnixSocketIngestPort {
                             true
                         }
                         Err(e) if e.kind() == io::ErrorKind::NotFound => false,
-                        Err(e) => return Err(IngestError::Io(e)),
+                        Err(e) => return Err(IngestError::Transport(e.to_string())),
                     }
                 }
                 None => true,
@@ -182,12 +182,13 @@ impl UnixSocketIngestPort {
                 match tokio::fs::remove_file(&config.socket_path).await {
                     Ok(()) => {}
                     Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-                    Err(e) => return Err(IngestError::Io(e)),
+                    Err(e) => return Err(IngestError::Transport(e.to_string())),
                 }
             }
         }
 
-        let listener = UnixListener::bind(&config.socket_path).map_err(IngestError::Io)?;
+        let listener = UnixListener::bind(&config.socket_path)
+            .map_err(|e| IngestError::Transport(e.to_string()))?;
 
         // Apply explicit permissions if configured. Without this, the socket
         // file's mode is determined by the process umask, which is typically
@@ -198,7 +199,7 @@ impl UnixSocketIngestPort {
             let perms = std::fs::Permissions::from_mode(mode);
             tokio::fs::set_permissions(&config.socket_path, perms)
                 .await
-                .map_err(IngestError::Io)?;
+                .map_err(|e| IngestError::Transport(e.to_string()))?;
         }
 
         Ok(Self {
@@ -216,7 +217,11 @@ impl UnixSocketIngestPort {
 #[async_trait]
 impl EventIngestPort for UnixSocketIngestPort {
     async fn accept(&self) -> Result<Box<dyn IngestSession>, IngestError> {
-        let (stream, peer) = self.listener.accept().await.map_err(IngestError::Io)?;
+        let (stream, peer) = self
+            .listener
+            .accept()
+            .await
+            .map_err(|e| IngestError::Transport(e.to_string()))?;
         // AF_UNIX clients are usually anonymous (no client-side bind), so
         // peer.pathname() is None for almost every real connection. When a
         // client did bind a pathname, surface it so per-connection logs can
@@ -238,7 +243,7 @@ impl EventIngestPort for UnixSocketIngestPort {
             ),
         )
         .await
-        .map_err(|_| IngestError::Handshake("handshake timed out".into()))??;
+        .map_err(|_| IngestError::Rejected("handshake timed out".into()))??;
         Ok(Box::new(session))
     }
 }

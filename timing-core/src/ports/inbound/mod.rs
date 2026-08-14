@@ -1,12 +1,16 @@
 //! Inbound (driving) ports for `timing-core`.
 //!
-//! These are the interfaces external callers use to drive the core: ingest
-//! sessions from transport adapters, and read-only queries from the API
-//! layer. The core implements both; adapters and the API layer depend on
-//! these traits, not on the application service's concrete type.
+//! The core implements every trait in this module; callers depend on the
+//! trait rather than on the application service's concrete type. The
+//! runtime drives the write side through [`EventAppendPort`]; the REST/SSE
+//! API drives the read side through [`EventQueryPort`].
+//!
+//! Transport listeners are *not* here. An adapter that yields producer
+//! sessions is implemented by the adapter and called by the runtime, which
+//! makes it driven: see [`crate::ports::outbound::EventIngestPort`].
 
-pub mod ingest;
+pub mod append;
 pub mod query;
 
-pub use ingest::{EventIngestPort, IncomingEvent, IngestError, IngestSession};
+pub use append::{AppendError, AppendOutcome, EventAppendPort};
 pub use query::{EventEntry, EventPage, EventQueryPort, EventStream, QueryError};

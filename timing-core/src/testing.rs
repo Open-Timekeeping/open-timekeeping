@@ -16,9 +16,32 @@
 //! adapter directly.
 
 use async_trait::async_trait;
-use event_model::OtkEvent;
+use event_model::{
+    Detection, DetectionId, DetectorId, OtkEvent, SensorData, SourceAttestation, TimebaseId,
+    TimestampingMethod, TimingPointId,
+};
 
 use crate::ports::outbound::{EventLog, LogEntry, LogSubscription, Offset, StorageError};
+
+/// A minimal valid `Detection` for tests that only care about the
+/// `(detector_id, sequence_number)` pair the sequence gate keys on.
+/// Every other field is fixed at a benign default.
+pub(crate) fn detection(detector_id: &str, seq: u64) -> Detection {
+    Detection {
+        detection_id: DetectionId::new(format!("d-{seq}")),
+        detector_id: DetectorId::new(detector_id),
+        timing_point_id: TimingPointId::new("tp"),
+        subject_id: None,
+        detected_at_ns: 0,
+        detected_at_uncertainty_ns: None,
+        received_at_ns: None,
+        timestamping_method: TimestampingMethod::HardwareEventCapture,
+        timebase_id: TimebaseId::new("tb"),
+        source_attestation: SourceAttestation::RuntimeDiscovered,
+        sequence_number: seq,
+        sensor: SensorData::BeamBreak,
+    }
+}
 
 /// In-memory `EventLog` that retains every appended entry in a `Vec`.
 ///

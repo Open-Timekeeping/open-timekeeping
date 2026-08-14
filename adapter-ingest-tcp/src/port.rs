@@ -1,10 +1,9 @@
-use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use ingest_protocol::{AllowAll, ConnectAuthoriser};
-use timing_core::ports::inbound::{EventIngestPort, IngestError, IngestSession};
+use timing_core::ports::outbound::{EventIngestPort, IngestError, IngestSession};
 use tokio::net::TcpListener;
 use tokio::time::timeout;
 
@@ -43,16 +42,12 @@ impl TcpIngestPort {
         // bind time, not later as a confusing handshake error. Mirrors the
         // validation on `UnixSocketIngestConfig` for parity.
         if config.max_frame_bytes == 0 {
-            return Err(IngestError::Io(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "max_frame_bytes must be > 0",
-            )));
+            return Err(IngestError::Transport("max_frame_bytes must be > 0".into()));
         }
         if config.handshake_timeout == Duration::ZERO {
-            return Err(IngestError::Io(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "handshake_timeout must be > 0",
-            )));
+            return Err(IngestError::Transport(
+                "handshake_timeout must be > 0".into(),
+            ));
         }
 
         // Load + validate TLS material BEFORE binding the listener so a
@@ -65,7 +60,9 @@ impl TcpIngestPort {
             None => None,
         };
 
-        let listener = TcpListener::bind(config.bind_addr).await?;
+        let listener = TcpListener::bind(config.bind_addr)
+            .await
+            .map_err(|e| IngestError::Transport(e.to_string()))?;
         Ok(Self {
             listener,
             config: Arc::new(config),
@@ -82,13 +79,17 @@ impl TcpIngestPort {
 
 #[cfg(feature = "tls")]
 fn tls_err_to_ingest(e: TlsAcceptError) -> IngestError {
-    IngestError::Io(io::Error::new(io::ErrorKind::InvalidInput, e.to_string()))
+    IngestError::Transport(e.to_string())
 }
 
 #[async_trait]
 impl EventIngestPort for TcpIngestPort {
     async fn accept(&self) -> Result<Box<dyn IngestSession>, IngestError> {
-        let (stream, peer) = self.listener.accept().await?;
+        let (stream, peer) = self
+            .listener
+            .accept()
+            .await
+            .map_err(|e| IngestError::Transport(e.to_string()))?;
         let peer_addr = peer.to_string();
 
         // Branch on TLS-or-not. The session is generic over the byte
@@ -98,8 +99,8 @@ impl EventIngestPort for TcpIngestPort {
         if let Some(acceptor) = self.tls_acceptor.as_ref() {
             let tls_stream = timeout(self.config.handshake_timeout, acceptor.accept(stream))
                 .await
-                .map_err(|_| IngestError::Handshake("TLS handshake timed out".into()))?
-                .map_err(|e| IngestError::Handshake(format!("TLS handshake failed: {e}")))?;
+                .map_err(|_| IngestError::Rejected("TLS handshake timed out".into()))?
+                .map_err(|e| IngestError::Rejected(format!("TLS handshake failed: {e}")))?;
             let session = timeout(
                 self.config.handshake_timeout,
                 TcpIngestSession::handshake(
@@ -110,7 +111,7 @@ impl EventIngestPort for TcpIngestPort {
                 ),
             )
             .await
-            .map_err(|_| IngestError::Handshake("handshake timed out".into()))??;
+            .map_err(|_| IngestError::Rejected("handshake timed out".into()))??;
             return Ok(Box::new(session));
         }
 
@@ -124,7 +125,7 @@ impl EventIngestPort for TcpIngestPort {
             ),
         )
         .await
-        .map_err(|_| IngestError::Handshake("handshake timed out".into()))??;
+        .map_err(|_| IngestError::Rejected("handshake timed out".into()))??;
         Ok(Box::new(session))
     }
 }
@@ -155,14 +156,13 @@ mod tests {
         // `expect_err` would require `TcpIngestPort: Debug`, which it isn't
         // (it carries `Arc<dyn ConnectAuthoriser>`). Pattern-match instead.
         match TcpIngestPort::bind(cfg).await {
-            Err(IngestError::Io(io_err)) => {
-                assert_eq!(io_err.kind(), io::ErrorKind::InvalidInput);
+            Err(IngestError::Transport(msg)) => {
                 assert!(
-                    io_err.to_string().contains("max_frame_bytes"),
-                    "error message should mention the offending field, got {io_err}"
+                    msg.contains("max_frame_bytes"),
+                    "error message should mention the offending field, got {msg}"
                 );
             }
-            Err(other) => panic!("expected IngestError::Io, got {other:?}"),
+            Err(other) => panic!("expected IngestError::Transport, got {other:?}"),
             Ok(_) => panic!("zero max_frame_bytes should be rejected"),
         }
     }
@@ -174,14 +174,13 @@ mod tests {
             ..ephemeral_config()
         };
         match TcpIngestPort::bind(cfg).await {
-            Err(IngestError::Io(io_err)) => {
-                assert_eq!(io_err.kind(), io::ErrorKind::InvalidInput);
+            Err(IngestError::Transport(msg)) => {
                 assert!(
-                    io_err.to_string().contains("handshake_timeout"),
-                    "error message should mention the offending field, got {io_err}"
+                    msg.contains("handshake_timeout"),
+                    "error message should mention the offending field, got {msg}"
                 );
             }
-            Err(other) => panic!("expected IngestError::Io, got {other:?}"),
+            Err(other) => panic!("expected IngestError::Transport, got {other:?}"),
             Ok(_) => panic!("zero handshake_timeout should be rejected"),
         }
     }

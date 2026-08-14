@@ -124,24 +124,46 @@ pub struct LogEntry {
 /// When an entry falls outside the retention window it is deleted and any
 /// subsequent read that targets its offset returns
 /// [`StorageError::RetentionExpired`].
+///
+/// # What this port actually guarantees
+///
+/// Only the *time* dimension is a portable contract: every backend must
+/// evict entries older than `max_age_secs`, and that behaviour is what the
+/// conformance suite verifies. The consumer-resume guarantee in
+/// `spec/architecture.md` is stated in time, so time is what the port
+/// promises.
+///
+/// The *size* dimension is an *adapter-negotiated budget*, not a port
+/// guarantee. Byte accounting is inherently backend-specific — a segment
+/// file counts serialized payloads and whole-segment granularity, a SQL
+/// backend would count pages, an object-store backend would count uploaded
+/// parts — so two backends given the same `max_bytes` will legitimately
+/// retain different amounts. Operators must size retention windows against
+/// `max_age_secs` and treat `max_bytes` purely as a disk-exhaustion
+/// backstop.
+///
+/// A backend that cannot implement a size bound at all is conformant if it
+/// documents that and rejects [`Self::SizeBased`] / [`Self::Hybrid`] at
+/// construction with [`StorageError::Configuration`], rather than silently
+/// accepting a budget it will not honour.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RetentionPolicy {
     /// Keep all events indefinitely. Disk usage grows without bound.
     Indefinite,
 
     /// Retain events for at most this many seconds after they were appended.
+    /// The one dimension every backend must honour identically.
     TimeBased { max_age_secs: u64 },
 
-    /// Retain events up to approximately this many bytes of stored event data.
-    ///
-    /// The exact byte accounting is backend-defined (it typically covers
-    /// serialized event payloads; index and filesystem overhead may or may not
-    /// be included). Treat this as an advisory budget, not a hard guarantee.
+    /// Retain events up to approximately this many bytes of stored event
+    /// data. Adapter-negotiated: see the type-level docs. Not comparable
+    /// across backends, and not a hard guarantee within one.
     SizeBased { max_bytes: u64 },
 
-    /// Enforce both a time limit and a size limit; whichever is exceeded first
-    /// triggers eviction. `max_bytes` uses the same advisory byte accounting
-    /// as [`Self::SizeBased`].
+    /// Enforce both a time limit and a size limit; whichever is exceeded
+    /// first triggers eviction. `max_age_secs` is the portable half;
+    /// `max_bytes` carries the same adapter-negotiated caveat as
+    /// [`Self::SizeBased`].
     Hybrid { max_age_secs: u64, max_bytes: u64 },
 }
 

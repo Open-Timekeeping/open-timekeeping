@@ -45,7 +45,9 @@ pub use metrics::Metrics;
 // public API of `timing-node` (used by integration tests and embedders)
 // keeps working after the M11 hexagonal-alignment move. New code should
 // import these directly from `timing_core` / `timing_core::ports::inbound`.
-pub use timing_core::ports::inbound::{EventEntry, EventPage, EventQueryPort, QueryError};
+pub use timing_core::ports::inbound::{
+    EventAppendPort, EventEntry, EventPage, EventQueryPort, QueryError,
+};
 pub use timing_core::{
     seed_from_log, seed_from_log_box, AppendOutcome, EventIngestService, GateDecision,
     IngestMetrics, SequenceGate,
@@ -58,7 +60,7 @@ use adapter_ingest_tcp::{TcpIngestConfig, TcpIngestPort, TlsConfig as AdapterTls
 use api::AppState;
 use auth::build_producer_authoriser;
 use ingest::run_listener;
-use timing_core::ports::inbound::EventIngestPort;
+use timing_core::ports::outbound::EventIngestPort;
 use timing_core::ProcessorConfig;
 use tracing::{debug, info, warn};
 

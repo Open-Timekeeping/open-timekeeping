@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use timing_core::ports::inbound::{EventIngestPort, IngestError, IngestSession};
-use timing_core::EventIngestService;
+use timing_core::ports::inbound::EventAppendPort;
+use timing_core::ports::outbound::{EventIngestPort, IngestError, IngestSession};
 use tracing::{debug, error, info, Instrument};
 
 use crate::metrics::Metrics;
@@ -31,7 +31,7 @@ impl Drop for ActiveSessionGuard {
 pub async fn run_listener(
     port: Box<dyn EventIngestPort>,
     listener_id: String,
-    service: Arc<EventIngestService>,
+    service: Arc<dyn EventAppendPort>,
     metrics: Arc<Metrics>,
     mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) {
@@ -138,9 +138,12 @@ pub async fn run_listener(
     }
 }
 
-async fn handle_session(mut session: Box<dyn IngestSession>, service: Arc<EventIngestService>) {
+async fn handle_session(mut session: Box<dyn IngestSession>, service: Arc<dyn EventAppendPort>) {
     let producer_id = session.producer_id().to_string();
-    let peer_addr = session.peer_addr().to_string();
+    // Transports with no addressable remote (in-process plugins, replay
+    // sources) report `None`; the label is for operator logs only, so a
+    // placeholder is honest here and nothing downstream keys on it.
+    let peer_addr = session.remote_label().unwrap_or("<no-remote>").to_string();
     info!(producer = %producer_id, peer = %peer_addr, "session started");
 
     loop {
@@ -178,7 +181,7 @@ async fn handle_session(mut session: Box<dyn IngestSession>, service: Arc<EventI
                 .instrument(event_span)
                 .await;
                 if let Err((peer, e)) = result {
-                    error!(peer = %peer, error = %e, "storage error");
+                    error!(peer = %peer, error = %e, "append failed");
                     break;
                 }
             }

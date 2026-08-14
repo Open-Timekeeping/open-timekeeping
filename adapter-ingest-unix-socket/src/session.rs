@@ -8,7 +8,7 @@ use ingest_protocol::{
     InboundAction, PostHandshakeProcessor, ProtocolError,
 };
 use otk_protocol::OtkEnvelope;
-use timing_core::ports::inbound::{IncomingEvent, IngestError, IngestSession};
+use timing_core::ports::outbound::{IncomingEvent, IngestError, IngestSession};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
 
@@ -39,9 +39,9 @@ impl UnixSocketIngestSession {
         let mut pending: VecDeque<OtkEnvelope> = VecDeque::new();
         loop {
             let n = match stream.read(&mut buf).await {
-                Ok(0) => return Err(IngestError::Handshake("EOF before Connect".into())),
+                Ok(0) => return Err(IngestError::Rejected("EOF before Connect".into())),
                 Ok(n) => n,
-                Err(e) => return Err(IngestError::Io(e)),
+                Err(e) => return Err(IngestError::Transport(e.to_string())),
             };
             for result in decoder.push(&buf[..n]) {
                 let envelope = result.map_err(frame_err_to_ingest)?;
@@ -70,7 +70,7 @@ impl UnixSocketIngestSession {
             }
             HandshakeOutcome::Rejected { reply, reason } => {
                 let _ = send_envelope(&mut stream, &reply, max_frame_size).await;
-                Err(IngestError::Handshake(format!("rejected: {reason:?}")))
+                Err(IngestError::Rejected(format!("rejected: {reason:?}")))
             }
         }
     }
@@ -81,7 +81,7 @@ impl UnixSocketIngestSession {
             let n = match self.stream.read(&mut buf).await {
                 Ok(0) => return Ok(false),
                 Ok(n) => n,
-                Err(e) => return Err(IngestError::Io(e)),
+                Err(e) => return Err(IngestError::Transport(e.to_string())),
             };
             for result in self.decoder.push(&buf[..n]) {
                 let envelope = result.map_err(frame_err_to_ingest)?;
@@ -120,8 +120,10 @@ impl IngestSession for UnixSocketIngestSession {
         &self.producer_id
     }
 
-    fn peer_addr(&self) -> &str {
-        &self.peer_addr
+    fn remote_label(&self) -> Option<&str> {
+        // Always available for this transport: the socket peer path is
+        // captured at accept time.
+        Some(&self.peer_addr)
     }
 }
 
@@ -131,18 +133,21 @@ async fn send_envelope(
     max_frame_size: usize,
 ) -> Result<(), IngestError> {
     let frame = encode_stream(envelope, max_frame_size).map_err(frame_err_to_ingest)?;
-    stream.write_all(&frame).await.map_err(IngestError::Io)?;
+    stream
+        .write_all(&frame)
+        .await
+        .map_err(|e| IngestError::Transport(e.to_string()))?;
     Ok(())
 }
 
 fn frame_err_to_ingest(e: FrameError) -> IngestError {
-    IngestError::Decode(e.to_string())
+    IngestError::Malformed(e.to_string())
 }
 
 fn handshake_err_to_ingest(e: HandshakeError) -> IngestError {
-    IngestError::Handshake(e.to_string())
+    IngestError::Rejected(e.to_string())
 }
 
 fn protocol_err_to_ingest(e: ProtocolError) -> IngestError {
-    IngestError::Decode(e.to_string())
+    IngestError::Malformed(e.to_string())
 }

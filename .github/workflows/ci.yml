@@ -26,6 +26,18 @@ jobs:
       - run: rustup show
       - run: cargo fmt --all -- --check
 
+  # The hexagonal fence is enumerated by hand in a per-crate clippy.toml,
+  # so the boundary stops being enforced silently if a new timing-core
+  # dependent lands without one or the copies drift apart. Cheap to check,
+  # and it fails the build rather than eroding quietly.
+  fence:
+    name: hexagonal fence
+    runs-on: ubuntu-latest
+    needs: fmt
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash .github/check-fences.sh
+
   # Lints + tests on Linux. adapter-ingest-unix-socket is cfg(unix), so
   # this exercises the full crate set including the AF_UNIX listener
   # and its AF_UNIX-specific integration tests. `--locked` ensures CI

@@ -12,4 +12,4 @@ pub mod sequence_gate;
 pub use crossing::{Crossing, CrossingId};
 pub use crossing_processor::CrossingProcessor;
 pub use processor_config::ProcessorConfig;
-pub use sequence_gate::{seed_from_log, seed_from_log_box, GateDecision, SequenceGate};
+pub use sequence_gate::{GateDecision, SequenceGate};

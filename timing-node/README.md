@@ -237,7 +237,7 @@ which listener accepted the connection.
 ## What does not belong here
 
 - OTK Protocol layer definitions: [`event-model`](../event-model), [`otk-protocol`](../otk-protocol), [`frame-codec`](../frame-codec).
-- The transport-binding ingest port trait: [`EventIngestPort`](../timing-core/src/ports/inbound/ingest.rs) in `timing_core::ports::inbound`. Implemented by the per-transport adapter crates.
+- The transport-binding ingest port trait: [`EventIngestPort`](../timing-core/src/ports/outbound/ingest.rs) in `timing_core::ports::outbound`. Implemented by the per-transport adapter crates.
 - The detector-adapter / timebase trait contracts: [`otk-contracts`](../otk-contracts).
 - Specific detector adapter implementations: `adapter-ingest-*` crates ([`adapter-ingest-tcp`](../adapter-ingest-tcp), [`adapter-ingest-unix-socket`](../adapter-ingest-unix-socket)).
 - Timing-domain logic: [`timing-core`](../timing-core).
@@ -246,7 +246,7 @@ which listener accepted the connection.
 
 ## Dependencies
 
-**Depends on:** [`event-model`](../event-model), [`otk-protocol`](../otk-protocol), [`frame-codec`](../frame-codec), [`ingest-protocol`](../ingest-protocol), [`EventIngestPort`](../timing-core/src/ports/inbound/ingest.rs) in `timing_core::ports::inbound`, [`EventLog`](../timing-core/src/ports/outbound/event_log.rs) in `timing_core::ports::outbound`, [`timing-core`](../timing-core), [`adapter-ingest-tcp`](../adapter-ingest-tcp), [`adapter-ingest-unix-socket`](../adapter-ingest-unix-socket) (cfg(unix)), [`adapter-event-log-segment`](../adapter-event-log-segment).
+**Depends on:** [`event-model`](../event-model), [`otk-protocol`](../otk-protocol), [`frame-codec`](../frame-codec), [`ingest-protocol`](../ingest-protocol), [`EventIngestPort`](../timing-core/src/ports/outbound/ingest.rs) in `timing_core::ports::outbound`, [`EventLog`](../timing-core/src/ports/outbound/event_log.rs) in `timing_core::ports::outbound`, [`timing-core`](../timing-core), [`adapter-ingest-tcp`](../adapter-ingest-tcp), [`adapter-ingest-unix-socket`](../adapter-ingest-unix-socket) (cfg(unix)), [`adapter-event-log-segment`](../adapter-event-log-segment).
 
 **Commonly depended on by:** runtime end-users via the `otk-node` binary. No other workspace crate depends on `timing-node`; it sits at the top of the dependency graph as the composition root.
 

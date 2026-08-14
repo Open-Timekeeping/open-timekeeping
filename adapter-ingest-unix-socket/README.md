@@ -1,7 +1,7 @@
 # adapter-ingest-unix-socket
 
 Unix-socket ingest adapter for Open Timekeeping. Implements
-[`EventIngestPort`](../timing-core/src/ports/inbound/ingest.rs) in `timing_core::ports::inbound` over a local AF_UNIX listener.
+[`EventIngestPort`](../timing-core/src/ports/outbound/ingest.rs) in `timing_core::ports::outbound` over a local AF_UNIX listener.
 
 > **Status: active.** v0.
 
